@@ -157,7 +157,6 @@ class _MapPageState extends State<MapPage> {
     });
 
     try {
-      
       final places = await _dependencies.getPlacesUseCase();
 
       setState(() {
@@ -186,25 +185,6 @@ class _MapPageState extends State<MapPage> {
       //clear previous markers
       mapController!.clearSymbols();
       mapController!.clearCircles();
-
-      //add user location marker
-      if (_currentPosition != null) {
-        try {
-          mapController!.addCircle(
-            CircleOptions(
-              circleRadius: 10.0,
-              circleColor: '#3388FF',
-              circleOpacity: 0.8,
-              circleStrokeWidth: 2.0,
-              circleStrokeColor: '#FFFFFF',
-              geometry: LatLng(
-                  _currentPosition!.latitude, _currentPosition!.longitude),
-            ),
-          );
-        } catch (e) {
-          print('Error adding user location marker: $e');
-        }
-      }
 
       //add place markers
       for (final place in _places) {
