@@ -4,6 +4,8 @@ import 'package:gebeta_gl/gebeta_gl.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
+import 'package:laptop_finder_mobile/features/map/di/map_dependencies.dart';
+import 'package:laptop_finder_mobile/features/map/domain/entities/place_entity.dart';
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
@@ -18,31 +20,55 @@ class _MapPageState extends State<MapPage> {
   Position? _currentPosition;
   bool _isLocating = false;
   String _locationError = '';
-  StreamSubscription<Position>? _positionStreamSubscription;
+  bool _isLoadingPlaces = false;
+  String _placesError = '';
+  String? _mapStyle;
+  bool _isLoadingMapStyle = true;
+  List<PlaceEntity> _places = [];
+
+  //dependencies
+  late final MapDependencies _dependencies;
 
   @override
   void initState() {
     super.initState();
     apiKey = dotenv.env['GEBETA_API_KEY'] ?? '';
-    //get users loc when the page loads
+
+    //initialize dep
+    _dependencies = MapDependencies();
+    _dependencies.init();
+
+    _loadMapStyle();
     _determinePosition();
+  }
+
+  Future<void> _loadMapStyle() async {
+    try {
+      final style =
+          await rootBundle.loadString('assets/styles/light_theme.json');
+      setState(() {
+        _mapStyle = style;
+        _isLoadingMapStyle = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingMapStyle = false;
+      });
+      print('Error loading map style: $e');
+    }
   }
 
   @override
   void dispose() {
-    // Cancel position stream if active
-    _positionStreamSubscription?.cancel();
     mapController?.dispose();
+    _dependencies.dispose();
     super.dispose();
   }
 
-  //for the map style coming from light theme
-  Future<String> loadMapStyle() async {
-    return await rootBundle.loadString('assets/styles/light_theme.json');
-  }
-
-  ///determining current location
+  /// for the map style coming from light theme
   Future<void> _determinePosition() async {
+    if (_isLocating) return;
+
     setState(() {
       _isLocating = true;
       _locationError = '';
@@ -94,88 +120,129 @@ class _MapPageState extends State<MapPage> {
       if (mapController != null && _currentPosition != null) {
         _moveToUserLocation();
       }
-
-      //updates
-      _startLocationUpdates();
     } catch (e) {
       setState(() {
         _isLocating = false;
         _locationError = 'Error getting location: $e';
       });
-      // print('Error getting location: $e');
     }
-  }
-
-  // Start listening to location updates
-  void _startLocationUpdates() {
-    _positionStreamSubscription?.cancel();
-
-    //high accuracy
-    final LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // Update if moved 10 meters
-    );
-
-    //position stream
-    _positionStreamSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-            (Position position) {
-      setState(() {
-        _currentPosition = position;
-      });
-
-      //updating with new position
-      if (mapController != null) {
-        _updateUserLocationOnMap();
-      }
-    }, onError: (e) {
-      setState(() {
-        _locationError = 'Location stream error: $e';
-      });
-      // print('Error from location stream: $e');
-    });
   }
 
   //moving focus
   void _moveToUserLocation() {
     if (_currentPosition != null && mapController != null) {
-      mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target:
-                LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-            zoom: 15.0,
+      try {
+        mapController!.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: LatLng(
+                  _currentPosition!.latitude, _currentPosition!.longitude),
+              zoom: 15.0,
+            ),
           ),
-        ),
-      );
-
-      //adding marker
-      _addUserLocationMarker();
+        );
+      } catch (e) {
+        print('Error moving to user location: $e');
+      }
     }
   }
 
-  //to update user's location without moving
-  void _updateUserLocationOnMap() {
-    if (_currentPosition != null && mapController != null) {
-      _addUserLocationMarker();
+  //fetch places using usecase
+  Future<void> _fetchPlaces() async {
+    if (_isLoadingPlaces || mapController == null) return;
+
+    setState(() {
+      _isLoadingPlaces = true;
+      _placesError = '';
+    });
+
+    try {
+      
+      final places = await _dependencies.getPlacesUseCase();
+
+      setState(() {
+        _places = places;
+      });
+
+      //update map
+      _updateMapWithPlaces();
+
+      setState(() {
+        _isLoadingPlaces = false;
+      });
+    } catch (e) {
+      setState(() {
+        _placesError = 'Failed to fetch places: $e';
+        _isLoadingPlaces = false;
+      });
     }
   }
 
-  //to add a marker at the user's location
-  void _addUserLocationMarker() {
-    if (_currentPosition != null && mapController != null) {
-      //circle
-      mapController!.addCircle(
-        CircleOptions(
-          circleRadius: 10.0,
-          circleColor: '#3388FF',
-          circleOpacity: 0.8,
-          circleStrokeWidth: 2.0,
-          circleStrokeColor: '#FFFFFF',
-          geometry:
-              LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-        ),
-      );
+  //to add a marker at the user location
+  void _updateMapWithPlaces() {
+    if (mapController == null) return;
+
+    try {
+      //clear previous markers
+      mapController!.clearSymbols();
+      mapController!.clearCircles();
+
+      //add user location marker
+      if (_currentPosition != null) {
+        try {
+          mapController!.addCircle(
+            CircleOptions(
+              circleRadius: 10.0,
+              circleColor: '#3388FF',
+              circleOpacity: 0.8,
+              circleStrokeWidth: 2.0,
+              circleStrokeColor: '#FFFFFF',
+              geometry: LatLng(
+                  _currentPosition!.latitude, _currentPosition!.longitude),
+            ),
+          );
+        } catch (e) {
+          print('Error adding user location marker: $e');
+        }
+      }
+
+      //add place markers
+      for (final place in _places) {
+        try {
+          //skip invalid coordinates
+          if (place.latitude == 0 && place.longitude == 0) continue;
+
+          //add place circle
+          mapController!.addCircle(
+            CircleOptions(
+              circleRadius: 9.0,
+              circleColor: '#ffd000',
+              circleOpacity: 0.8,
+              circleStrokeWidth: 2.0,
+              circleStrokeColor: '#FFFFFF',
+              geometry: LatLng(place.latitude, place.longitude),
+            ),
+          );
+
+          //add place name
+          if (place.name.isNotEmpty) {
+            mapController!.addSymbol(
+              SymbolOptions(
+                geometry: LatLng(place.latitude, place.longitude),
+                textField: place.name,
+                textSize: 12,
+                textColor: '#000000',
+                textHaloColor: '#FFFFFF',
+                textHaloWidth: 1,
+              ),
+            );
+          }
+        } catch (e) {
+          print('Error adding place marker: $e');
+        }
+      }
+    } catch (e) {
+      print('Error updating map with places: $e');
     }
   }
 
@@ -184,54 +251,43 @@ class _MapPageState extends State<MapPage> {
     return Scaffold(
       body: Stack(
         children: [
-          FutureBuilder<String>(
-            future: loadMapStyle(),
-            builder: (BuildContext context, AsyncSnapshot<String> snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              } else if (snapshot.hasError) {
-                // print('Error loading map style: ${snapshot.error}');
-                return Center(
-                    child: Text('Error loading map style: ${snapshot.error}'));
-              } else if (snapshot.hasData) {
-                String styleString = snapshot.data!;
-                try {
-                  return GebetaMap(
-                    compassViewPosition: CompassViewPosition.topRight,
-                    styleString: styleString,
-                    initialCameraPosition: _currentPosition != null
-                        ? CameraPosition(
-                            target: LatLng(_currentPosition!.latitude,
-                                _currentPosition!.longitude),
-                            zoom: 15.0,
-                          )
-                        : const CameraPosition(
-                            target:
-                                LatLng(9.0192, 38.7525), // Default: Addis Ababa
-                            zoom: 10.0,
-                          ),
-                    apiKey: apiKey,
-                    myLocationEnabled: true,
-                    myLocationTrackingMode: MyLocationTrackingMode.tracking,
-                    onMapCreated: (controller) {
-                      mapController = controller;
-                      // print('Map created successfully');
+          //loading for map style
+          if (_isLoadingMapStyle)
+            const Center(child: CircularProgressIndicator())
+          else if (_mapStyle == null)
+            const Center(child: Text('Failed to load map style'))
+          else
+            GebetaMap(
+              compassViewPosition: CompassViewPosition.topRight,
+              styleString: _mapStyle!,
+              initialCameraPosition: _currentPosition != null
+                  ? CameraPosition(
+                      target: LatLng(_currentPosition!.latitude,
+                          _currentPosition!.longitude),
+                      zoom: 15.0,
+                    )
+                  : const CameraPosition(
+                      target: LatLng(9.0192, 38.7525), // Default: Addis Ababa
+                      zoom: 10.0,
+                    ),
+              apiKey: apiKey,
+              myLocationEnabled: true,
+              myLocationTrackingMode: MyLocationTrackingMode.tracking,
+              onMapCreated: (controller) {
+                mapController = controller;
 
-                      // If we already have the location, move to it
-                      if (_currentPosition != null) {
-                        _moveToUserLocation();
-                      }
-                    },
-                  );
-                } catch (e) {
-                  // print('Error creating map: $e');
-                  return Center(child: Text('Error creating map: $e'));
-                }
-              } else {
-                return const Center(child: Text('No map style found'));
-              }
-            },
-          ),
+                // Wait for map to be fully initialized
+                Future.delayed(const Duration(milliseconds: 1000), () {
+                  // Move to user location if available
+                  if (_currentPosition != null) {
+                    _moveToUserLocation();
+                  }
+
+                  // Fetch places
+                  _fetchPlaces();
+                });
+              },
+            ),
 
           //loc button
           Positioned(
@@ -268,14 +324,47 @@ class _MapPageState extends State<MapPage> {
               ),
             ),
 
-          //loading
-          if (_isLocating)
-            Container(
-              // ignore: deprecated_member_use
-              color: Colors.black.withOpacity(0.3),
-              child: const Center(
-                child: CircularProgressIndicator(
+          // Places error message
+          if (_placesError.isNotEmpty)
+            Positioned(
+              top: _locationError.isNotEmpty ? 120 : 50,
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  // ignore: deprecated_member_use
+                  color: Colors.red.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _placesError,
+                  style: const TextStyle(color: Colors.white),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+
+          // Loading indicator
+          if (_isLocating || _isLoadingPlaces)
+            Positioned(
+              top: 50,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
                   color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 5,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const CircularProgressIndicator(
+                  strokeWidth: 2,
                 ),
               ),
             ),
