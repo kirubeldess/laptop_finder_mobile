@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../features/map/presentation/pages/map_page.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -75,7 +76,7 @@ class HomeScreen extends StatelessWidget {
                         Text(
                           'powered by ',
                           style: TextStyle(
-                            color: Colors.amber,
+                            color: Colors.white54,
                             fontSize: 12,
                           ),
                         ),
@@ -84,16 +85,18 @@ class HomeScreen extends StatelessWidget {
                           style: TextStyle(
                             color: Colors.amber,
                             fontSize: 12,
-                            fontStyle: FontStyle.italic,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 30),
-
                     ElevatedButton(
                       onPressed: () {
-                        //nav
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const MapPage()),
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.amber,
