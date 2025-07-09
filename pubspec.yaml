@@ -38,7 +38,7 @@ dependencies:
   flutter_dotenv: ^5.1.0
   geolocator: 9.0.2
   equatable: ^2.0.7
-  http: ^1.1.0
+  http: ^1.4.0
   dartz: ^0.10.1
   provider: ^6.1.5
 

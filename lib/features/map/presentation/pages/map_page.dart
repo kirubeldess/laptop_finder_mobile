@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import 'package:laptop_finder_mobile/features/map/di/map_dependencies.dart';
 import 'package:laptop_finder_mobile/features/map/domain/entities/place_entity.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
@@ -25,6 +27,7 @@ class _MapPageState extends State<MapPage> {
   String? _mapStyle;
   bool _isLoadingMapStyle = true;
   List<PlaceEntity> _places = [];
+  bool _isLoadingDirections = false;
 
   //dependencies
   late final MapDependencies _dependencies;
@@ -259,6 +262,207 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
+  // Show direction response in a dialog
+  void _showDirectionResponse(Map<String, dynamic> data, PlaceEntity place) {
+    // Use Future.microtask to ensure the dialog is shown after the current frame
+    Future.microtask(() {
+      showDialog(
+        context: context,
+        builder: (BuildContext dialogContext) {
+          return Dialog(
+            backgroundColor: Colors.black,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Container(
+              width: MediaQuery.of(dialogContext).size.width * 0.85,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  Text(
+                    'Directions to ${place.name}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Content
+                  const Text(
+                    'api:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  //details
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.black),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Status: ${data['msg'] ?? "Unknown"}',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  
+                  const Text(
+                    'directions:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  
+                  Container(
+                    height: 150,
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: _buildDirectionPointsList(data),
+                  ),
+
+                  
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  //direction list
+  Widget _buildDirectionPointsList(Map<String, dynamic> data) {
+    final directionPoints = data['direction'] as List?;
+
+    if (directionPoints == null || directionPoints.isEmpty) {
+      return const Center(
+        child: Text(
+          'No direction points available',
+          style: TextStyle(color: Colors.red),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
+      itemCount: directionPoints.length,
+      itemBuilder: (context, index) {
+        final point = directionPoints[index];
+        if (point is List && point.length >= 2) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              'Point $index: [${point[0]}, ${point[1]}]',
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+              ),
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  //getting dirns
+  Future<void> _getDirections(PlaceEntity place) async {
+    
+    setState(() {
+      _isLoadingDirections = true;
+    });
+
+    try {
+      final lat1 = _currentPosition!.latitude.toString();
+      final lon1 = _currentPosition!.longitude.toString();
+      final lat2 = place.latitude.toString();
+      final lon2 = place.longitude.toString();
+
+      
+      String url =
+          "https://mapapi.gebeta.app/api/route/direction/?origin={$lat1,$lon1}&destination={$lat2,$lon2}&apiKey=$apiKey";
+
+      print("Requesting directions from URL: $url");
+      final response = await http.get(Uri.parse(url));
+      print("Response status code: ${response.statusCode}");
+      print("Response body: ${response.body}");
+
+      setState(() {
+        _isLoadingDirections = false;
+      });
+
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        if (data != null) {
+          _showDirectionResponse(data, place);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('invalid response data'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('error getting directions: ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print("direction API error: $e");
+      setState(() {
+        _isLoadingDirections = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('An error occurred: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   //place details -bottom sheet
   void _showPlaceDetails(PlaceEntity place) {
     //current page for image slide
@@ -292,7 +496,6 @@ class _MapPageState extends State<MapPage> {
               controller: controller,
               padding: const EdgeInsets.all(16),
               children: [
-               
                 Text(
                   place.name,
                   style: const TextStyle(
@@ -303,7 +506,6 @@ class _MapPageState extends State<MapPage> {
                 ),
                 const SizedBox(height: 8),
 
-                
                 Text(
                   'Coordinates: ${place.latitude.toStringAsFixed(6)}, ${place.longitude.toStringAsFixed(6)}',
                   style: const TextStyle(
@@ -313,7 +515,6 @@ class _MapPageState extends State<MapPage> {
                 ),
                 const SizedBox(height: 16),
 
-                
                 if (place.images.isNotEmpty)
                   Column(
                     children: [
@@ -341,7 +542,6 @@ class _MapPageState extends State<MapPage> {
                               ),
                               child: Stack(
                                 children: [
-                                 
                                   Positioned.fill(
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
@@ -380,8 +580,6 @@ class _MapPageState extends State<MapPage> {
                                       ),
                                     ),
                                   ),
-
-                                  
                                   Positioned(
                                     top: 8,
                                     right: 8,
@@ -467,16 +665,11 @@ class _MapPageState extends State<MapPage> {
                 _buildDetailRow(Icons.phone, 'Phone', place.phone),
                 const SizedBox(height: 16),
 
-                //the button 
+                //the button
                 ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Directions feature coming soon!'),
-                        backgroundColor: Colors.amber,
-                      ),
-                    );
+                    _getDirections(place);
                   },
                   icon: const Icon(Icons.directions),
                   label: const Text('Get Directions'),
@@ -524,12 +717,11 @@ class _MapPageState extends State<MapPage> {
   }
 
   // void _addDebugButton() {
-    
+
   // }
 
   // bool _showDebugButton = false;
 
-  
   PlaceEntity? _findPlaceByCoordinates(double lat, double lng) {
     const tolerance = 0.0001;
     for (final place in _places) {
@@ -571,25 +763,25 @@ class _MapPageState extends State<MapPage> {
               onMapCreated: (controller) {
                 mapController = controller;
 
-                //tap listener
+                // Set up symbol tap listener
                 controller.onSymbolTapped.add((symbol) {
                   final lat = symbol.options.geometry?.latitude;
                   final lng = symbol.options.geometry?.longitude;
 
-                  print("symbol tapped at coordinates: $lat, $lng");
+                  print("Symbol tapped at coordinates: $lat, $lng");
 
                   if (lat != null && lng != null) {
                     final place = _findPlaceByCoordinates(lat, lng);
                     if (place != null) {
-                      print("found place: ${place.name}");
+                      print("Found place: ${place.name}");
                       _showPlaceDetails(place);
                     } else {
-                      print("no place found at these coordinates");
+                      print("No place found at these coordinates");
                     }
                   }
                 });
 
-                //circle tap listener
+                // Set up circle tap listener
                 controller.onCircleTapped.add((circle) {
                   final lat = circle.options.geometry?.latitude;
                   final lng = circle.options.geometry?.longitude;
@@ -624,64 +816,8 @@ class _MapPageState extends State<MapPage> {
               },
             ),
 
-          //loc button
-          Positioned(
-            bottom: 50,
-            right: 10,
-            child: FloatingActionButton(
-              onPressed: _determinePosition,
-              backgroundColor: Colors.white,
-              child: Icon(
-                _isLocating ? Icons.hourglass_top : Icons.my_location,
-                color: Colors.black,
-              ),
-            ),
-          ),
-
-          //errors
-          if (_locationError.isNotEmpty)
-            Positioned(
-              top: 50,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  // ignore: deprecated_member_use
-                  color: Colors.red.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _locationError,
-                  style: const TextStyle(color: Colors.white),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-
-          // Places error message
-          if (_placesError.isNotEmpty)
-            Positioned(
-              top: _locationError.isNotEmpty ? 120 : 50,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  // ignore: deprecated_member_use
-                  color: Colors.red.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _placesError,
-                  style: const TextStyle(color: Colors.white),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-
           // Loading indicator
-          if (_isLocating || _isLoadingPlaces)
+          if (_isLocating || _isLoadingPlaces || _isLoadingDirections)
             Positioned(
               top: 50,
               right: 20,
