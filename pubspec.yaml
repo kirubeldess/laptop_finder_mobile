@@ -41,6 +41,7 @@ dependencies:
   http: ^1.4.0
   dartz: ^0.10.1
   provider: ^6.1.5
+  flutter_polyline_points: ^2.1.0
 
 dev_dependencies:
   flutter_test:

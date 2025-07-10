@@ -4,10 +4,12 @@ import 'package:gebeta_gl/gebeta_gl.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
+import 'dart:math';
 import 'package:laptop_finder_mobile/features/map/di/map_dependencies.dart';
 import 'package:laptop_finder_mobile/features/map/domain/entities/place_entity.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
@@ -28,6 +30,10 @@ class _MapPageState extends State<MapPage> {
   bool _isLoadingMapStyle = true;
   List<PlaceEntity> _places = [];
   bool _isLoadingDirections = false;
+  List<Line> _routeLines = [];
+  List<Circle> _routePoints = [];
+  bool _usePolylineRoute = true;
+  LatLng? _routeEndpoint;
 
   //dependencies
   late final MapDependencies _dependencies;
@@ -63,6 +69,8 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    _clearRouteLines();
+    _clearRoutePoints();
     mapController?.dispose();
     _dependencies.dispose();
     super.dispose();
@@ -317,13 +325,11 @@ class _MapPageState extends State<MapPage> {
                           'Status: ${data['msg'] ?? "Unknown"}',
                           style: const TextStyle(color: Colors.white),
                         ),
-                        
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
 
-                  
                   const Text(
                     'directions:',
                     style: TextStyle(
@@ -334,7 +340,6 @@ class _MapPageState extends State<MapPage> {
                   ),
                   const SizedBox(height: 8),
 
-                  
                   Container(
                     height: 150,
                     width: double.infinity,
@@ -346,7 +351,6 @@ class _MapPageState extends State<MapPage> {
                     child: _buildDirectionPointsList(data),
                   ),
 
-                  
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
@@ -404,7 +408,6 @@ class _MapPageState extends State<MapPage> {
 
   //getting dirns
   Future<void> _getDirections(PlaceEntity place) async {
-    
     setState(() {
       _isLoadingDirections = true;
     });
@@ -415,7 +418,6 @@ class _MapPageState extends State<MapPage> {
       final lat2 = place.latitude.toString();
       final lon2 = place.longitude.toString();
 
-      
       String url =
           "https://mapapi.gebeta.app/api/route/direction/?origin={$lat1,$lon1}&destination={$lat2,$lon2}&apiKey=$apiKey";
 
@@ -432,6 +434,9 @@ class _MapPageState extends State<MapPage> {
         var data = json.decode(response.body);
         if (data != null) {
           _showDirectionResponse(data, place);
+
+          // Draw the route on the map
+          _drawRouteOnMap(data, place);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -461,6 +466,132 @@ class _MapPageState extends State<MapPage> {
         ),
       );
     }
+  }
+
+  //drawing route based on response
+  void _drawRouteOnMap(Map<String, dynamic> data, PlaceEntity place) {
+    if (mapController == null) return;
+
+    //clearing
+    _clearRouteLines();
+    _clearRoutePoints();
+
+    //get dirn points from response
+    final directionPoints = data['direction'] as List?;
+    if (directionPoints == null || directionPoints.isEmpty) {
+      print("No direction points available to draw route");
+      return;
+    }
+
+    try {
+      //list of coordinates
+      List<LatLng> routeCoordinates = [];
+      for (var point in directionPoints) {
+        if (point is List && point.length >= 2) {
+          double lng = double.tryParse(point[0].toString()) ?? 0.0;
+          double lat = double.tryParse(point[1].toString()) ?? 0.0;
+          routeCoordinates.add(LatLng(lat, lng));
+        }
+      }
+
+      if (routeCoordinates.length < 2) {
+        print("not enough coordinates to draw");
+        return;
+      }
+      //drawing the polyline route
+      if (_usePolylineRoute) {
+        _drawPolylineRoute(routeCoordinates);
+      }
+      _addRouteEndpointMarkers(
+          routeCoordinates.first, routeCoordinates.last, place);
+      //for camera
+      _fitRouteInView(routeCoordinates);
+      // _showRouteInfo(data);
+    } catch (e) {
+      print("Error drawing route: $e");
+    }
+  }
+
+  //drawing route
+  void _drawPolylineRoute(List<LatLng> coordinates) {
+    if (mapController == null) return;
+
+    try {
+      List<PointLatLng> polylinePoints = coordinates
+          .map((latLng) => PointLatLng(latLng.latitude, latLng.longitude))
+          .toList();
+
+      //drawing th polyline
+      final lineOptions = LineOptions(
+        geometry: coordinates,
+        lineColor: "#FFA500",
+        lineWidth: 4.0,
+        lineOpacity: 0.7,
+      );
+
+      const int segmentSize = 20;
+
+      for (int i = 0; i < coordinates.length - 1; i += segmentSize) {
+        final int endIdx = min(i + segmentSize, coordinates.length - 1);
+        final segmentCoordinates = coordinates.sublist(i, endIdx + 1);
+
+        if (segmentCoordinates.length >= 2) {
+          Future.delayed(Duration(milliseconds: i * 5), () {
+            if (mapController != null) {
+              final segmentLineOptions = LineOptions(
+                geometry: segmentCoordinates,
+                lineColor: "#FFA500", // Orange color
+                lineWidth: 4.0,
+                lineOpacity: 0.7,
+              );
+
+              mapController!.addLine(segmentLineOptions).then((line) {
+                _routeLines.add(line);
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      print("error drawing: $e");
+    }
+  }
+
+  //for clearing route map- after closed
+  void _clearRouteLines() {
+    if (mapController == null) return;
+
+    for (var line in _routeLines) {
+      mapController!.removeLine(line);
+    }
+    _routeLines.clear();
+  }
+  void _clearRoutePoints() {
+    if (mapController == null) return;
+
+    for (var point in _routePoints) {
+      mapController!.removeCircle(point);
+    }
+    _routePoints.clear();
+  }
+
+  //endpoint markers
+  void _addRouteEndpointMarkers(LatLng start, LatLng end, PlaceEntity place) {
+    if (mapController == null) return;
+
+    //start point
+    mapController!.addSymbol(
+      SymbolOptions(
+        geometry: start,
+        iconImage: "marker-15",
+        iconSize: 1.5,
+        textField: "Current Location",
+        textOffset: const Offset(0, 2),
+        textColor: "#FFFFFF",
+        textHaloColor: "#000000",
+        textHaloWidth: 1.0,
+      ),
+    );
   }
 
   //place details -bottom sheet
@@ -716,11 +847,6 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  // void _addDebugButton() {
-
-  // }
-
-  // bool _showDebugButton = false;
 
   PlaceEntity? _findPlaceByCoordinates(double lat, double lng) {
     const tolerance = 0.0001;
@@ -733,6 +859,38 @@ class _MapPageState extends State<MapPage> {
     return null;
   }
 
+  //camera adjusting
+  void _fitRouteInView(List<LatLng> coordinates) {
+    if (mapController == null || coordinates.isEmpty) return;
+
+    try {
+      //bounds of route
+      double minLat = coordinates.first.latitude;
+      double maxLat = coordinates.first.latitude;
+      double minLng = coordinates.first.longitude;
+      double maxLng = coordinates.first.longitude;
+
+      for (var point in coordinates) {
+        minLat = min(minLat, point.latitude);
+        maxLat = max(maxLat, point.latitude);
+        minLng = min(minLng, point.longitude);
+        maxLng = max(maxLng, point.longitude);
+      }
+
+      //padding
+      final latPadding = (maxLat - minLat) * 0.2;
+      final lngPadding = (maxLng - minLng) * 0.2;
+      final bounds = LatLngBounds(
+        southwest: LatLng(minLat - latPadding, minLng - lngPadding),
+        northeast: LatLng(maxLat + latPadding, maxLng + lngPadding),
+      );
+      mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds),
+      );
+    } catch (e) {
+      print("Error fitting route in view: $e");
+    }
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
