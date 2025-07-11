@@ -488,8 +488,9 @@ class _MapPageState extends State<MapPage> {
       List<LatLng> routeCoordinates = [];
       for (var point in directionPoints) {
         if (point is List && point.length >= 2) {
-          double lng = double.tryParse(point[0].toString()) ?? 0.0;
-          double lat = double.tryParse(point[1].toString()) ?? 0.0;
+          //fix!!
+          double lat = double.tryParse(point[0].toString()) ?? 0.0;
+          double lng = double.tryParse(point[1].toString()) ?? 0.0;
           routeCoordinates.add(LatLng(lat, lng));
         }
       }
@@ -566,6 +567,7 @@ class _MapPageState extends State<MapPage> {
     }
     _routeLines.clear();
   }
+
   void _clearRoutePoints() {
     if (mapController == null) return;
 
@@ -847,7 +849,6 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-
   PlaceEntity? _findPlaceByCoordinates(double lat, double lng) {
     const tolerance = 0.0001;
     for (final place in _places) {
@@ -891,6 +892,7 @@ class _MapPageState extends State<MapPage> {
       print("Error fitting route in view: $e");
     }
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
