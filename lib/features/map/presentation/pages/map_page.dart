@@ -237,7 +237,7 @@ class _MapPageState extends State<MapPage> {
           //add place circle
           mapController!.addCircle(
             CircleOptions(
-              circleRadius: 12.0, // Make circles bigger for easier tapping
+              circleRadius: 8.0, // Make circles bigger for easier tapping
               circleColor: '#ffd000',
               circleOpacity: 0.8,
               circleStrokeWidth: 2.0,
@@ -270,142 +270,6 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
-  // Show direction response in a dialog
-  void _showDirectionResponse(Map<String, dynamic> data, PlaceEntity place) {
-    // Use Future.microtask to ensure the dialog is shown after the current frame
-    Future.microtask(() {
-      showDialog(
-        context: context,
-        builder: (BuildContext dialogContext) {
-          return Dialog(
-            backgroundColor: Colors.black,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Container(
-              width: MediaQuery.of(dialogContext).size.width * 0.85,
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title
-                  Text(
-                    'Directions to ${place.name}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Content
-                  const Text(
-                    'api:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  //details
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.black),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Status: ${data['msg'] ?? "Unknown"}',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  const Text(
-                    'directions:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Container(
-                    height: 150,
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: _buildDirectionPointsList(data),
-                  ),
-
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      child: const Text(
-                        'Close',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    });
-  }
-
-  //direction list
-  Widget _buildDirectionPointsList(Map<String, dynamic> data) {
-    final directionPoints = data['direction'] as List?;
-
-    if (directionPoints == null || directionPoints.isEmpty) {
-      return const Center(
-        child: Text(
-          'No direction points available',
-          style: TextStyle(color: Colors.red),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const ClampingScrollPhysics(),
-      itemCount: directionPoints.length,
-      itemBuilder: (context, index) {
-        final point = directionPoints[index];
-        if (point is List && point.length >= 2) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(
-              'Point $index: [${point[0]}, ${point[1]}]',
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 12,
-              ),
-            ),
-          );
-        }
-        return const SizedBox.shrink();
-      },
-    );
-  }
-
   //getting dirns
   Future<void> _getDirections(PlaceEntity place) async {
     setState(() {
@@ -433,9 +297,8 @@ class _MapPageState extends State<MapPage> {
       if (response.statusCode == 200) {
         var data = json.decode(response.body);
         if (data != null) {
-          _showDirectionResponse(data, place);
-
-          // Draw the route on the map
+          
+          //just drawing route
           _drawRouteOnMap(data, place);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -984,7 +847,7 @@ class _MapPageState extends State<MapPage> {
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
@@ -999,6 +862,21 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
+
+          //current button
+          Positioned(
+            bottom: 45,
+            right: 3,
+            child: FloatingActionButton(
+              onPressed: _moveToUserLocation,
+              backgroundColor: Colors.white,
+              mini: true,
+              child: const Icon(
+                Icons.my_location,
+                color: Colors.grey,
+              ),
+            ),
+          ),
         ],
       ),
     );

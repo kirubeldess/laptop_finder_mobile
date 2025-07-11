@@ -27,8 +27,8 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: Colors.black,
       body: Center(
         child: Image.asset(
-          'assets/images/geblogo.png',
-          width: 200,
+          'assets/images/gebeta_logo.png',
+          width: 150,
         ),
       ),
     );
