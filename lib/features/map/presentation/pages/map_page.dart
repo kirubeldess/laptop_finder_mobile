@@ -237,7 +237,7 @@ class _MapPageState extends State<MapPage> {
           //add place circle
           mapController!.addCircle(
             CircleOptions(
-              circleRadius: 8.0, // Make circles bigger for easier tapping
+              circleRadius: 8.0,
               circleColor: '#ffd000',
               circleOpacity: 0.8,
               circleStrokeWidth: 2.0,
@@ -256,6 +256,8 @@ class _MapPageState extends State<MapPage> {
               textColor: '#000000',
               textHaloColor: '#FFFFFF',
               textHaloWidth: 1,
+              textOffset: const Offset(0, -1.5), // Position text above marker
+              textAnchor: 'bottom', // Anchor text to bottom
               iconImage: "marker-15",
               iconSize: 0.1,
               iconOpacity: 0.01,
@@ -297,7 +299,6 @@ class _MapPageState extends State<MapPage> {
       if (response.statusCode == 200) {
         var data = json.decode(response.body);
         if (data != null) {
-          
           //just drawing route
           _drawRouteOnMap(data, place);
         } else {
